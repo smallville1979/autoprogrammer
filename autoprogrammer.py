@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 
-import os
-import sys
-import subprocess
-import time
-import logging
-import shutil
+import argparse
 import ast
+import logging
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 logging.basicConfig(
@@ -15,25 +14,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Paths
 PROJECT_ROOT = Path(__file__).resolve().parent
 DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build"
 SRC_DIR = PROJECT_ROOT / "src"
-BLUEPRINT_FILE = PROJECT_ROOT / "blueprint.md"
-GAME_FILE = SRC_DIR / "game.py"
-SPEC_FILE = PROJECT_ROOT / "LegendsOfPandora.spec"
 
 DIST_DIR.mkdir(exist_ok=True)
 BUILD_DIR.mkdir(exist_ok=True)
 SRC_DIR.mkdir(exist_ok=True)
 
-GAME_NAME = "LegendsOfPandora"
+DEFAULT_BLUEPRINT_FILE = PROJECT_ROOT / "blueprint.md"
+DEFAULT_GAME_FILE = SRC_DIR / "game.py"
+DEFAULT_GAME_NAME = "LegendsOfPandora"
 MAX_ATTEMPTS = 5
 
 
-def check_command_exists(command: str) -> bool:
-    return shutil.which(command) is not None
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate and build a Pygame RPG from a blueprint.")
+    parser.add_argument(
+        "--blueprint",
+        default=str(DEFAULT_BLUEPRINT_FILE),
+        help="Path to blueprint markdown file"
+    )
+    parser.add_argument(
+        "--name",
+        default=DEFAULT_GAME_NAME,
+        help="Name of the built game executable"
+    )
+    return parser.parse_args()
 
 
 def check_python_package(package_name: str) -> bool:
@@ -45,10 +53,6 @@ def check_python_package(package_name: str) -> bool:
 
 
 def extract_code_block(text: str) -> str:
-    """
-    Extract Python code from a markdown code block if present.
-    Otherwise return the text unchanged.
-    """
     text = text.strip()
 
     if text.startswith("```"):
@@ -66,7 +70,7 @@ def extract_code_block(text: str) -> str:
 def generate_code(blueprint_text: str, previous_error: str = "") -> str:
     """
     Placeholder generator.
-    Replace this with your real Ollama / OpenAI / Grok / Anthropic call.
+    Replace later with Ollama, OpenAI, Anthropic, Grok, etc.
     """
     prompt = f"""
 You are an expert game developer. Create a complete, standalone Python game using Pygame based on this blueprint:
@@ -141,9 +145,6 @@ sys.exit()
 
 
 def validate_python_code(code: str) -> tuple[bool, str]:
-    """
-    Parse generated code for syntax validity before writing/building.
-    """
     try:
         ast.parse(code)
         return True, ""
@@ -151,78 +152,84 @@ def validate_python_code(code: str) -> tuple[bool, str]:
         return False, f"SyntaxError: {e}"
 
 
-def write_game_file(code: str) -> None:
-    GAME_FILE.write_text(code, encoding="utf-8")
-    logger.info("Code written to %s", GAME_FILE)
+def write_game_file(game_file: Path, code: str) -> None:
+    game_file.write_text(code, encoding="utf-8")
+    logger.info("Code written to %s", game_file)
 
 
-def run_python_smoke_check() -> tuple[bool, str]:
-    """
-    Runs a compile-only syntax check on the generated file.
-    """
-    cmd = [sys.executable, "-m", "py_compile", str(GAME_FILE)]
+def run_python_smoke_check(game_file: Path) -> tuple[bool, str]:
+    cmd = [sys.executable, "-m", "py_compile", str(game_file)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
         return True, ""
     return False, result.stderr + result.stdout
 
 
-def compile_game() -> tuple[bool, str]:
+def compile_game(game_file: Path, game_name: str) -> tuple[bool, str]:
     cmd = [
-        "pyinstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--onefile",
         "--windowed",
-        "--name", GAME_NAME,
+        "--name", game_name,
         "--distpath", str(DIST_DIR),
         "--workpath", str(BUILD_DIR),
         "--specpath", str(PROJECT_ROOT),
-        str(GAME_FILE),
+        str(game_file),
     ]
     logger.info("Compiling with PyInstaller...")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
         logger.info("Build SUCCESS!")
         return True, ""
-    else:
-        logger.error("Build FAILED.")
-        return False, result.stderr + result.stdout
+    logger.error("Build FAILED.")
+    return False, result.stderr + result.stdout
 
 
 def ensure_requirements() -> bool:
     ok = True
 
-    if not check_command_exists("pyinstaller"):
-        logger.error("PyInstaller is not installed or not on PATH.")
-        logger.error("Install with: pip install pyinstaller")
+    if not check_python_package("PyInstaller"):
+        logger.error("PyInstaller is not installed for this Python version.")
+        logger.error("Install with: py -3.12 -m pip install pyinstaller")
         ok = False
 
     if not check_python_package("pygame"):
         logger.error("pygame is not installed.")
-        logger.error("Install with: pip install pygame")
+        logger.error("Install with: py -3.12 -m pip install pygame")
         ok = False
 
     return ok
 
 
-def clean_old_artifacts():
-    if SPEC_FILE.exists():
-        SPEC_FILE.unlink()
-        logger.info("Removed old spec file: %s", SPEC_FILE)
+def clean_old_artifacts(game_name: str):
+    spec_file = PROJECT_ROOT / f"{game_name}.spec"
+    if spec_file.exists():
+        spec_file.unlink()
+        logger.info("Removed old spec file: %s", spec_file)
 
 
 def main():
+    args = parse_args()
+    blueprint_file = Path(args.blueprint)
+    game_name = args.name
+    game_file = DEFAULT_GAME_FILE
+
     logger.info("Autoprogrammer Started")
+    logger.info("Blueprint file: %s", blueprint_file)
+    logger.info("Game name: %s", game_name)
 
     if not ensure_requirements():
         return
 
-    if not BLUEPRINT_FILE.exists():
-        logger.error("Missing %s! Create it with your RPG idea.", BLUEPRINT_FILE.name)
+    if not blueprint_file.exists():
+        logger.error("Missing blueprint file: %s", blueprint_file)
         return
 
-    blueprint = BLUEPRINT_FILE.read_text(encoding="utf-8").strip()
+    blueprint = blueprint_file.read_text(encoding="utf-8").strip()
     if not blueprint:
-        logger.error("%s is empty.", BLUEPRINT_FILE.name)
+        logger.error("Blueprint file is empty: %s", blueprint_file)
         return
 
     attempts = 0
@@ -240,25 +247,25 @@ def main():
             logger.warning("Generated code failed AST validation: %s", syntax_error)
             continue
 
-        write_game_file(code)
+        write_game_file(game_file, code)
 
-        smoke_ok, smoke_error = run_python_smoke_check()
+        smoke_ok, smoke_error = run_python_smoke_check(game_file)
         if not smoke_ok:
             last_error = smoke_error[-2000:]
             logger.warning("Smoke check failed. Retrying with error feedback...")
             continue
 
-        clean_old_artifacts()
+        clean_old_artifacts(game_name)
 
-        success, error = compile_game()
+        success, error = compile_game(game_file, game_name)
         if success:
-            exe_path = DIST_DIR / f"{GAME_NAME}.exe"
+            exe_path = DIST_DIR / f"{game_name}.exe"
             logger.info("DONE! Your game is ready: %s", exe_path)
             logger.info("Send this .exe to your friend — no Python needed on their end!")
             return
-        else:
-            last_error = error[-2000:]
-            logger.warning("Fixing errors and retrying...")
+
+        last_error = error[-2000:]
+        logger.warning("Fixing errors and retrying...")
 
     logger.error("Failed after max attempts. Check logs.")
 
