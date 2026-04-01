@@ -1,9 +1,9 @@
 # Autoprogrammer
 
-A Python autoprogrammer project for generating and packaging RPG-style game code.
+Autoprogrammer is a Python project that generates and packages RPG-style game code.
 
-## Files
-- autoprogammer.py
+## Current files
+- autoprogrammer.py
 - rpg_backend_engineer.agent.md
 - rpg_game_designer.agent.md
 - rpg_orchestrator.agent.md
